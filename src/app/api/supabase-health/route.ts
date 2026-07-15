@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAuth } from "@/lib/api-utils";
-import { normalizeSupabaseProjectUrl } from "@/lib/supabase/url";
+import { normalizeSupabaseProjectUrl, formatSupabaseError } from "@/lib/supabase/url";
 
 export async function GET() {
   const denied = await requireAuth();
@@ -21,13 +21,24 @@ export async function GET() {
   }
 
   const supabase = createClient(url, key, { auth: { persistSession: false } });
-  const { error } = await supabase.from("memories").select("id").limit(1);
 
-  if (error) {
+  try {
+    const { error } = await supabase.from("memories").select("id").limit(1);
+
+    if (error) {
+      return NextResponse.json({
+        ok: false,
+        error: formatSupabaseError(error, "Supabase health check"),
+        code: error.code,
+        url,
+        hasAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+        hasPublishableKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY),
+      });
+    }
+  } catch (err) {
     return NextResponse.json({
       ok: false,
-      error: error.message,
-      code: error.code,
+      error: `Cannot reach ${url}. Copy Project URL from Supabase dashboard and Redeploy Vercel.`,
       url,
       hasAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
       hasPublishableKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY),

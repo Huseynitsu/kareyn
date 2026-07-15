@@ -12,6 +12,18 @@ export function formatSupabaseError(error: { message?: string; code?: string }, 
   const msg = error.message ?? "Unknown error";
   const code = error.code ?? "";
 
+  if (
+    msg.includes("Failed to fetch") ||
+    msg.includes("NetworkError") ||
+    msg.includes("Network request failed")
+  ) {
+    return (
+      `${step}: Cannot reach Supabase. Open Supabase → Settings → API → copy Project URL ` +
+      `into Vercel NEXT_PUBLIC_SUPABASE_URL (https://xxx.supabase.co only), then Redeploy. ` +
+      `Test the URL in your browser first — it must open.`
+    );
+  }
+
   if (msg.includes("Invalid path") || code === "PGRST125") {
     return (
       `${step}: Supabase URL is wrong. In Vercel set NEXT_PUBLIC_SUPABASE_URL to ` +

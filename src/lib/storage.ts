@@ -8,7 +8,7 @@ import {
   isStoragePath,
   MEDIA_BUCKET,
 } from "@/lib/supabase/browser";
-import { formatSupabaseError } from "@/lib/supabase/url";
+import { formatSupabaseError, normalizeSupabaseProjectUrl } from "@/lib/supabase/url";
 import {
   rowToMemory,
   memoryToRow,
@@ -58,8 +58,28 @@ function throwDbError(error: { message?: string; code?: string }, step: string):
 }
 
 async function verifySupabaseSetup() {
-  const { error } = await supabase().from("memories").select("id").limit(1);
-  if (error) throwDbError(error, "Supabase connection check");
+  const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+
+  try {
+    const { error } = await supabase().from("memories").select("id").limit(1);
+    if (error) throwDbError(error, "Supabase connection check");
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Supabase connection check:")) {
+      throw err;
+    }
+    if (err instanceof Error && err.message.includes("Missing Supabase")) {
+      throw err;
+    }
+
+    const host = configuredUrl
+      ? normalizeSupabaseProjectUrl(configuredUrl)
+      : "(NEXT_PUBLIC_SUPABASE_URL is empty — add it in Vercel and Redeploy)";
+
+    throw new Error(
+      `Supabase connection check: Cannot reach ${host}. ` +
+        `Copy the exact Project URL from Supabase → Settings → API into Vercel, then Redeploy.`
+    );
+  }
 }
 
 export async function checkSession(): Promise<boolean> {
