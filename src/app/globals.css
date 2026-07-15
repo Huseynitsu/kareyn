@@ -1,26 +1,131 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0c0c10;
+  --surface: #14141c;
+  --surface-elevated: #1c1c28;
+  --foreground: #e8e4df;
+  --text: #e8e4df;
+  --text-muted: #8a8694;
+  --primary: #c4a484;
+  --accent: #e8a4b8;
+  --accent-glow: rgba(232, 164, 184, 0.25);
+  --sage: #8fb89a;
+  --border: #2a2a36;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-sage: var(--sage);
+  --color-border: var(--border);
+  --font-sans: var(--font-dm-sans);
+  --font-serif: var(--font-playfair);
+  --shadow-glow: 0 0 40px var(--accent-glow);
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+}
+
+.font-serif {
+  font-family: var(--font-playfair), Georgia, serif;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.shadow-glow {
+  box-shadow: 0 0 40px var(--accent-glow);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+input[type="date"],
+input[type="text"],
+input[type="file"],
+textarea {
+  color-scheme: dark;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@keyframes marker-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 164, 184, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(232, 164, 184, 0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-marker-pulse {
+  animation: marker-pulse 2.5s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marker-pulse,
+  .animate-fade-in {
+    animation: none;
+  }
+}
+
+.maplibregl-ctrl-group {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+.maplibregl-ctrl-group button {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--surface-elevated) !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--border) !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(20, 20, 28, 0.75) !important;
+  color: var(--text-muted) !important;
+  font-size: 10px !important;
+  border-radius: 8px 0 0 0 !important;
+}
+
+.maplibregl-ctrl-icon {
+  filter: invert(0.85);
 }

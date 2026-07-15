@@ -1,0 +1,27 @@
+{
+  "version": 8,
+  "name": "Satellite",
+  "sources": {
+    "satellite": {
+      "type": "raster",
+      "tiles": [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19,
+      "attribution": "Esri, Maxar, Earthstar Geographics"
+    },
+    "labels": {
+      "type": "raster",
+      "tiles": [
+        "https://basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}@2x.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 19
+    }
+  },
+  "layers": [
+    { "id": "satellite", "type": "raster", "source": "satellite" },
+    { "id": "labels", "type": "raster", "source": "labels", "paint": { "raster-opacity": 0.85 } }
+  ]
+}

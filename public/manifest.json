@@ -1,0 +1,16 @@
+{
+  "name": "Huseyn & Karla",
+  "short_name": "H&K",
+  "description": "Our private world — map, gallery, and plans",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c10",
+  "theme_color": "#e8a4b8",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
