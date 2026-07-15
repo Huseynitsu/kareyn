@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Playfair_Display } from "next/font/google";
+import AuthProvider from "@/components/AuthProvider";
 import Navigation from "@/components/Navigation";
 import DataBackup from "@/components/DataBackup";
 import "./globals.css";
@@ -39,12 +40,14 @@ export default function RootLayout({
       className={`${dmSans.variable} ${playfair.variable} h-full dark`}
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col antialiased bg-background text-text">
-        <Navigation />
-        <main className="flex-1 pb-20 md:pb-0">{children}</main>
-        <footer className="hidden md:flex items-center justify-center gap-4 py-3 border-t border-border text-xs text-text-muted">
-          <span>Huseyn & Karla — our little corner of the world</span>
-          <DataBackup />
-        </footer>
+        <AuthProvider>
+          <Navigation />
+          <main className="flex-1 pb-20 md:pb-0">{children}</main>
+          <footer className="hidden md:flex items-center justify-center gap-4 py-3 border-t border-border text-xs text-text-muted">
+            <span>Huseyn & Karla — our little corner of the world</span>
+            <DataBackup />
+          </footer>
+        </AuthProvider>
       </body>
     </html>
   );

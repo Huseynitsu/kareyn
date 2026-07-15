@@ -234,7 +234,7 @@ function PlanModal({
 
     let imageId = existingImageId;
     if (file) {
-      imageId = await saveBlob(file);
+      imageId = await saveBlob(file, "plans");
     }
 
     const now = new Date().toISOString();

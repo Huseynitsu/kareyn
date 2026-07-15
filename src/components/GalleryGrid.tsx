@@ -38,7 +38,7 @@ export default function GalleryGrid() {
   }, [load]);
 
   const handleAdd = async (data: { title: string; caption: string; file: File }) => {
-    const blobId = await saveBlob(data.file);
+    const blobId = await saveBlob(data.file, "gallery");
     const item: MediaItem = {
       id: crypto.randomUUID(),
       type: data.file.type.startsWith("video/") ? "video" : "image",

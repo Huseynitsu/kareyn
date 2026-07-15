@@ -31,7 +31,7 @@ export default function EditsGrid() {
   }, [load]);
 
   const handleAdd = async (data: { title: string; caption: string; file: File }) => {
-    const blobId = await saveBlob(data.file);
+    const blobId = await saveBlob(data.file, "edits");
     const item: MediaItem = {
       id: crypto.randomUUID(),
       type: "video",

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Globe, Images, Film, MapPin, Heart } from "lucide-react";
+import { Globe, Images, Film, MapPin, Heart, LogOut } from "lucide-react";
+import { useAuth } from "./AuthProvider";
 
 const links = [
   { href: "/", label: "Map", icon: Globe },
@@ -13,6 +14,7 @@ const links = [
 
 export default function Navigation() {
   const pathname = usePathname();
+  const { logout } = useAuth();
 
   return (
     <>
@@ -42,6 +44,13 @@ export default function Navigation() {
               </Link>
             );
           })}
+          <button
+            onClick={() => logout()}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm text-text-muted hover:text-text hover:bg-surface-elevated transition-all duration-200 ml-1"
+            aria-label="Log out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </nav>
       </header>
 
