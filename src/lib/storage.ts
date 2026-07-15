@@ -4,8 +4,11 @@ import {
   getMediaPublicUrl,
   buildStoragePath,
   mimeToExt,
+  normalizeStoragePath,
+  isStoragePath,
   MEDIA_BUCKET,
 } from "@/lib/supabase/browser";
+import { formatSupabaseError } from "@/lib/supabase/url";
 import {
   rowToMemory,
   memoryToRow,
@@ -48,6 +51,15 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
 function supabase() {
   return getSupabaseBrowser();
+}
+
+function throwDbError(error: { message?: string; code?: string }, step: string): never {
+  throw new Error(formatSupabaseError(error, step));
+}
+
+async function verifySupabaseSetup() {
+  const { error } = await supabase().from("memories").select("id").limit(1);
+  if (error) throwDbError(error, "Supabase connection check");
 }
 
 export async function checkSession(): Promise<boolean> {
@@ -116,6 +128,9 @@ export async function importAllData(
   json: string,
   onProgress?: (message: string) => void
 ): Promise<void> {
+  onProgress?.("Checking Supabase connection...");
+  await verifySupabaseSetup();
+
   const data = JSON.parse(json) as {
     memories?: MapMemory[];
     gallery?: MediaItem[];
@@ -126,22 +141,6 @@ export async function importAllData(
 
   const idMap: Record<string, string> = {};
   const blobs = data.blobs ?? [];
-
-  onProgress?.("Importing map memories...");
-  for (const m of data.memories ?? []) {
-    await saveMemory({
-      ...m,
-      imageIds: (m.imageIds ?? []).map((id) => idMap[id] ?? id),
-    });
-  }
-
-  onProgress?.("Importing plans...");
-  for (const p of data.plans ?? []) {
-    await savePlan({
-      ...p,
-      imageId: p.imageId ? idMap[p.imageId] ?? p.imageId : undefined,
-    });
-  }
 
   for (let i = 0; i < blobs.length; i++) {
     const b = blobs[i];
@@ -154,6 +153,23 @@ export async function importAllData(
       const msg = err instanceof Error ? err.message : "unknown error";
       throw new Error(`Failed on file ${i + 1}/${blobs.length}: ${msg}`);
     }
+  }
+
+  onProgress?.("Importing map memories...");
+  for (const m of data.memories ?? []) {
+    await saveMemory({
+      ...m,
+      imageIds: (m.imageIds ?? []).map((id) => idMap[id] ?? id).filter(isStoragePath),
+    });
+  }
+
+  onProgress?.("Importing plans...");
+  for (const p of data.plans ?? []) {
+    const imageId = p.imageId ? idMap[p.imageId] ?? p.imageId : undefined;
+    await savePlan({
+      ...p,
+      imageId: imageId && isStoragePath(imageId) ? imageId : undefined,
+    });
   }
 
   onProgress?.("Importing gallery...");
@@ -180,7 +196,10 @@ export async function getBlobUrl(storagePath: string): Promise<string | null> {
 }
 
 export async function deleteBlob(path: string) {
-  const { error } = await supabase().storage.from(MEDIA_BUCKET).remove([path]);
+  const normalized = normalizeStoragePath(path);
+  if (!isStoragePath(normalized)) return;
+
+  const { error } = await supabase().storage.from(MEDIA_BUCKET).remove([normalized]);
   if (error) throw new Error(error.message);
 }
 
@@ -195,7 +214,7 @@ export async function getAllMemories(): Promise<MapMemory[]> {
 
 export async function saveMemory(memory: MapMemory) {
   const { error } = await supabase().from("memories").upsert(memoryToRow(memory));
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Saving memory");
 }
 
 export async function saveMemoryWithBlobs(
@@ -223,11 +242,14 @@ export async function deleteMemory(id: string) {
     .single();
 
   if (memory?.image_paths?.length) {
-    await supabase().storage.from(MEDIA_BUCKET).remove(memory.image_paths);
+    const paths = memory.image_paths.map(normalizeStoragePath).filter(isStoragePath);
+    if (paths.length) {
+      await supabase().storage.from(MEDIA_BUCKET).remove(paths);
+    }
   }
 
   const { error } = await supabase().from("memories").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Deleting memory");
 }
 
 export async function getAllGallery(): Promise<MediaItem[]> {
@@ -235,7 +257,7 @@ export async function getAllGallery(): Promise<MediaItem[]> {
     .from("gallery_items")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Loading gallery");
   return ((data ?? []) as MediaRow[]).map(rowToMediaItem);
 }
 
@@ -248,7 +270,7 @@ export async function saveGalleryItem(item: MediaItem) {
     caption: item.caption,
     created_at: item.createdAt,
   });
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Saving gallery item");
 }
 
 export async function deleteGalleryItem(id: string) {
@@ -258,12 +280,12 @@ export async function deleteGalleryItem(id: string) {
     .eq("id", id)
     .single();
 
-  if (item?.storage_path) {
-    await supabase().storage.from(MEDIA_BUCKET).remove([item.storage_path]);
+  if (item?.storage_path && isStoragePath(item.storage_path)) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([normalizeStoragePath(item.storage_path)]);
   }
 
   const { error } = await supabase().from("gallery_items").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Deleting gallery item");
 }
 
 export async function getAllEdits(): Promise<MediaItem[]> {
@@ -284,7 +306,7 @@ export async function saveEditItem(item: MediaItem) {
     caption: item.caption,
     created_at: item.createdAt,
   });
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Saving edit item");
 }
 
 export async function deleteEditItem(id: string) {
@@ -294,12 +316,12 @@ export async function deleteEditItem(id: string) {
     .eq("id", id)
     .single();
 
-  if (item?.storage_path) {
-    await supabase().storage.from(MEDIA_BUCKET).remove([item.storage_path]);
+  if (item?.storage_path && isStoragePath(item.storage_path)) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([normalizeStoragePath(item.storage_path)]);
   }
 
   const { error } = await supabase().from("edit_items").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Deleting edit item");
 }
 
 export async function getAllPlans(): Promise<TravelPlan[]> {
@@ -313,7 +335,7 @@ export async function getAllPlans(): Promise<TravelPlan[]> {
 
 export async function savePlan(plan: TravelPlan) {
   const { error } = await supabase().from("travel_plans").upsert(planToRow(plan));
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Saving plan");
 }
 
 export async function deletePlan(id: string) {
@@ -323,12 +345,12 @@ export async function deletePlan(id: string) {
     .eq("id", id)
     .single();
 
-  if (plan?.image_path) {
-    await supabase().storage.from(MEDIA_BUCKET).remove([plan.image_path]);
+  if (plan?.image_path && isStoragePath(plan.image_path)) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([normalizeStoragePath(plan.image_path)]);
   }
 
   const { error } = await supabase().from("travel_plans").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) throwDbError(error, "Deleting plan");
 }
 
 export async function exportAllData(): Promise<string> {

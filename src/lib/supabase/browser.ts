@@ -1,11 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { normalizeSupabaseProjectUrl } from "@/lib/supabase/url";
 
 let client: SupabaseClient | null = null;
 
 export function getSupabaseBrowser(): SupabaseClient {
   if (client) return client;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, "");
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = rawUrl ? normalizeSupabaseProjectUrl(rawUrl) : "";
   const key = (
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
@@ -13,12 +15,14 @@ export function getSupabaseBrowser(): SupabaseClient {
 
   if (!url || !key) {
     throw new Error(
-      "Missing Supabase keys. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to Vercel."
+      "Missing Supabase keys. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to Vercel, then Redeploy."
     );
   }
 
   if (!url.startsWith("https://") || !url.includes(".supabase.co")) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL must look like https://xxx.supabase.co");
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL must look like https://xxx.supabase.co (no /rest/v1 suffix)."
+    );
   }
 
   client = createClient(url, key, {
@@ -60,11 +64,17 @@ export function normalizeStoragePath(storagePath: string): string {
   return path;
 }
 
+export function isStoragePath(value: string): boolean {
+  return normalizeStoragePath(value).includes("/");
+}
+
 export function getMediaPublicUrl(storagePath: string): string | null {
   const path = normalizeStoragePath(storagePath);
   if (!path || !path.includes("/")) return null;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.replace(/\/$/, "");
+  const url = normalizeSupabaseProjectUrl(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+  if (!url) return null;
+
   const encoded = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
   return `${url}/storage/v1/object/public/${MEDIA_BUCKET}/${encoded}`;
 }
