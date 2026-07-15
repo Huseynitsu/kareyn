@@ -11,15 +11,16 @@ export async function POST(request: Request) {
   const path = `${folder || "misc"}/${crypto.randomUUID()}.${safeExt}`;
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.storage.from(MEDIA_BUCKET).createSignedUploadUrl(path);
+  const { data, error } = await supabase.storage
+    .from(MEDIA_BUCKET)
+    .createSignedUploadUrl(path, { upsert: true });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({
-    path,
-    signedUrl: data.signedUrl,
+    path: data.path,
     token: data.token,
   });
 }

@@ -1,4 +1,7 @@
 import type { MapMemory, MediaItem, TravelPlan } from "@/types";
+import { getSupabaseBrowser } from "@/lib/supabase/browser";
+
+const MEDIA_BUCKET = "media";
 
 export class AuthError extends Error {
   constructor() {
@@ -57,25 +60,32 @@ export async function logout(): Promise<void> {
 export async function saveBlob(file: File, folder = "misc"): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
 
-  const { path, signedUrl } = await api<{ path: string; signedUrl: string; token: string }>(
-    "/api/upload/sign",
-    {
-      method: "POST",
-      body: JSON.stringify({ folder, contentType: file.type, ext }),
-    }
-  );
-
-  const uploadRes = await fetch(signedUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Upload failed: ${uploadRes.statusText}`);
+  let signData: { path: string; token: string };
+  try {
+    signData = await api<{ path: string; signedUrl: string; token: string }>(
+      "/api/upload/sign",
+      {
+        method: "POST",
+        body: JSON.stringify({ folder, contentType: file.type, ext }),
+      }
+    );
+  } catch (err) {
+    throw new Error(`Could not start upload: ${err instanceof Error ? err.message : "unknown error"}`);
   }
 
-  return path;
+  const supabase = getSupabaseBrowser();
+  const { error } = await supabase.storage
+    .from(MEDIA_BUCKET)
+    .uploadToSignedUrl(signData.path, signData.token, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: true,
+    });
+
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`);
+  }
+
+  return signData.path;
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -116,15 +126,6 @@ export async function importAllData(
   const idMap: Record<string, string> = {};
   const blobs = data.blobs ?? [];
 
-  for (let i = 0; i < blobs.length; i++) {
-    const b = blobs[i];
-    onProgress?.(`Uploading media ${i + 1} of ${blobs.length}...`);
-    const blob = base64ToBlob(b.data, b.mimeType);
-    const file = new File([blob], b.id, { type: b.mimeType });
-    const folder = blobFolder(b.id, data);
-    idMap[b.id] = await saveBlob(file, folder);
-  }
-
   onProgress?.("Importing map memories...");
   for (const m of data.memories ?? []) {
     await saveMemory({
@@ -133,22 +134,40 @@ export async function importAllData(
     });
   }
 
-  onProgress?.("Importing gallery...");
-  for (const g of data.gallery ?? []) {
-    await saveGalleryItem({ ...g, blobId: idMap[g.blobId] ?? g.blobId });
-  }
-
-  onProgress?.("Importing edits...");
-  for (const e of data.edits ?? []) {
-    await saveEditItem({ ...e, blobId: idMap[e.blobId] ?? e.blobId });
-  }
-
   onProgress?.("Importing plans...");
   for (const p of data.plans ?? []) {
     await savePlan({
       ...p,
       imageId: p.imageId ? idMap[p.imageId] ?? p.imageId : undefined,
     });
+  }
+
+  for (let i = 0; i < blobs.length; i++) {
+    const b = blobs[i];
+    onProgress?.(`Uploading media ${i + 1} of ${blobs.length}...`);
+    try {
+      const blob = base64ToBlob(b.data, b.mimeType);
+      const file = new File([blob], b.id, { type: b.mimeType });
+      const folder = blobFolder(b.id, data);
+      idMap[b.id] = await saveBlob(file, folder);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown error";
+      throw new Error(`Failed on file ${i + 1}/${blobs.length}: ${msg}`);
+    }
+  }
+
+  onProgress?.("Importing gallery...");
+  for (const g of data.gallery ?? []) {
+    const blobId = idMap[g.blobId];
+    if (!blobId) continue;
+    await saveGalleryItem({ ...g, blobId });
+  }
+
+  onProgress?.("Importing edits...");
+  for (const e of data.edits ?? []) {
+    const blobId = idMap[e.blobId];
+    if (!blobId) continue;
+    await saveEditItem({ ...e, blobId });
   }
 
   onProgress?.("Done!");
