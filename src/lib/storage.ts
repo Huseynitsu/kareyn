@@ -2,6 +2,8 @@ import type { MapMemory, MediaItem, TravelPlan } from "@/types";
 import {
   getSupabaseBrowser,
   getMediaPublicUrl,
+  buildStoragePath,
+  mimeToExt,
   MEDIA_BUCKET,
 } from "@/lib/supabase/browser";
 import {
@@ -71,8 +73,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function saveBlob(file: File, folder = "misc"): Promise<string> {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
-  const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+  const path = buildStoragePath(folder, file.type || "application/octet-stream");
 
   const { error } = await supabase()
     .storage.from(MEDIA_BUCKET)
@@ -82,7 +83,7 @@ export async function saveBlob(file: File, folder = "misc"): Promise<string> {
     });
 
   if (error) {
-    throw new Error(`Upload failed: ${error.message}`);
+    throw new Error(`Upload failed (${path}): ${error.message}`);
   }
 
   return path;
@@ -147,7 +148,7 @@ export async function importAllData(
     onProgress?.(`Uploading media ${i + 1} of ${blobs.length}...`);
     try {
       const blob = base64ToBlob(b.data, b.mimeType);
-      const file = new File([blob], b.id, { type: b.mimeType });
+      const file = new File([blob], `file.${mimeToExt(b.mimeType)}`, { type: b.mimeType });
       idMap[b.id] = await saveBlob(file, blobFolder(b.id, data));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
