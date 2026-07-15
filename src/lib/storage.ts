@@ -1,7 +1,19 @@
 import type { MapMemory, MediaItem, TravelPlan } from "@/types";
-import { getSupabaseBrowser } from "@/lib/supabase/browser";
-
-const MEDIA_BUCKET = "media";
+import {
+  getSupabaseBrowser,
+  getMediaPublicUrl,
+  MEDIA_BUCKET,
+} from "@/lib/supabase/browser";
+import {
+  rowToMemory,
+  memoryToRow,
+  rowToMediaItem,
+  rowToPlan,
+  planToRow,
+  type MemoryRow,
+  type MediaRow,
+  type PlanRow,
+} from "@/lib/db-mappers";
 
 export class AuthError extends Error {
   constructor() {
@@ -11,13 +23,10 @@ export class AuthError extends Error {
 }
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const isFormData = options?.body instanceof FormData;
   const res = await fetch(path, {
     ...options,
     credentials: "same-origin",
-    headers: isFormData
-      ? options?.headers
-      : { "Content-Type": "application/json", ...options?.headers },
+    headers: { "Content-Type": "application/json", ...options?.headers },
   });
 
   if (res.status === 401) {
@@ -33,6 +42,10 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json();
+}
+
+function supabase() {
+  return getSupabaseBrowser();
 }
 
 export async function checkSession(): Promise<boolean> {
@@ -59,24 +72,11 @@ export async function logout(): Promise<void> {
 
 export async function saveBlob(file: File, folder = "misc"): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+  const path = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-  let signData: { path: string; token: string };
-  try {
-    signData = await api<{ path: string; signedUrl: string; token: string }>(
-      "/api/upload/sign",
-      {
-        method: "POST",
-        body: JSON.stringify({ folder, contentType: file.type, ext }),
-      }
-    );
-  } catch (err) {
-    throw new Error(`Could not start upload: ${err instanceof Error ? err.message : "unknown error"}`);
-  }
-
-  const supabase = getSupabaseBrowser();
-  const { error } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .uploadToSignedUrl(signData.path, signData.token, file, {
+  const { error } = await supabase()
+    .storage.from(MEDIA_BUCKET)
+    .upload(path, file, {
       contentType: file.type || "application/octet-stream",
       upsert: true,
     });
@@ -85,7 +85,7 @@ export async function saveBlob(file: File, folder = "misc"): Promise<string> {
     throw new Error(`Upload failed: ${error.message}`);
   }
 
-  return signData.path;
+  return path;
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -148,8 +148,7 @@ export async function importAllData(
     try {
       const blob = base64ToBlob(b.data, b.mimeType);
       const file = new File([blob], b.id, { type: b.mimeType });
-      const folder = blobFolder(b.id, data);
-      idMap[b.id] = await saveBlob(file, folder);
+      idMap[b.id] = await saveBlob(file, blobFolder(b.id, data));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
       throw new Error(`Failed on file ${i + 1}/${blobs.length}: ${msg}`);
@@ -176,21 +175,26 @@ export async function importAllData(
 export async function getBlobUrl(storagePath: string): Promise<string | null> {
   if (!storagePath) return null;
   if (storagePath.startsWith("http")) return storagePath;
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return null;
-  return `${base}/storage/v1/object/public/media/${storagePath}`;
+  return getMediaPublicUrl(storagePath);
 }
 
 export async function deleteBlob(path: string) {
-  await api("/api/upload", { method: "DELETE", body: JSON.stringify({ path }) });
+  const { error } = await supabase().storage.from(MEDIA_BUCKET).remove([path]);
+  if (error) throw new Error(error.message);
 }
 
 export async function getAllMemories(): Promise<MapMemory[]> {
-  return api<MapMemory[]>("/api/memories");
+  const { data, error } = await supabase()
+    .from("memories")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as MemoryRow[]).map(rowToMemory);
 }
 
 export async function saveMemory(memory: MapMemory) {
-  await api<MapMemory>("/api/memories", { method: "POST", body: JSON.stringify(memory) });
+  const { error } = await supabase().from("memories").upsert(memoryToRow(memory));
+  if (error) throw new Error(error.message);
 }
 
 export async function saveMemoryWithBlobs(
@@ -199,55 +203,131 @@ export async function saveMemoryWithBlobs(
 ): Promise<MapMemory> {
   const imageIds = [...memory.imageIds];
   for (const file of newFiles) {
-    const path = await saveBlob(file, "memories");
-    imageIds.push(path);
+    imageIds.push(await saveBlob(file, "memories"));
   }
   const saved: MapMemory = {
     ...memory,
     imageIds,
     updatedAt: new Date().toISOString(),
   };
-  return api<MapMemory>("/api/memories", { method: "POST", body: JSON.stringify(saved) });
+  await saveMemory(saved);
+  return saved;
 }
 
 export async function deleteMemory(id: string) {
-  await api("/api/memories", { method: "DELETE", body: JSON.stringify({ id }) });
+  const { data: memory } = await supabase()
+    .from("memories")
+    .select("image_paths")
+    .eq("id", id)
+    .single();
+
+  if (memory?.image_paths?.length) {
+    await supabase().storage.from(MEDIA_BUCKET).remove(memory.image_paths);
+  }
+
+  const { error } = await supabase().from("memories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function getAllGallery(): Promise<MediaItem[]> {
-  return api<MediaItem[]>("/api/gallery");
+  const { data, error } = await supabase()
+    .from("gallery_items")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as MediaRow[]).map(rowToMediaItem);
 }
 
 export async function saveGalleryItem(item: MediaItem) {
-  await api("/api/gallery", { method: "POST", body: JSON.stringify(item) });
+  const { error } = await supabase().from("gallery_items").upsert({
+    id: item.id,
+    type: item.type,
+    storage_path: item.blobId,
+    title: item.title,
+    caption: item.caption,
+    created_at: item.createdAt,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteGalleryItem(id: string) {
-  await api("/api/gallery", { method: "DELETE", body: JSON.stringify({ id }) });
+  const { data: item } = await supabase()
+    .from("gallery_items")
+    .select("storage_path")
+    .eq("id", id)
+    .single();
+
+  if (item?.storage_path) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([item.storage_path]);
+  }
+
+  const { error } = await supabase().from("gallery_items").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function getAllEdits(): Promise<MediaItem[]> {
-  return api<MediaItem[]>("/api/edits");
+  const { data, error } = await supabase()
+    .from("edit_items")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as MediaRow[]).map(rowToMediaItem);
 }
 
 export async function saveEditItem(item: MediaItem) {
-  await api("/api/edits", { method: "POST", body: JSON.stringify(item) });
+  const { error } = await supabase().from("edit_items").upsert({
+    id: item.id,
+    type: item.type,
+    storage_path: item.blobId,
+    title: item.title,
+    caption: item.caption,
+    created_at: item.createdAt,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteEditItem(id: string) {
-  await api("/api/edits", { method: "DELETE", body: JSON.stringify({ id }) });
+  const { data: item } = await supabase()
+    .from("edit_items")
+    .select("storage_path")
+    .eq("id", id)
+    .single();
+
+  if (item?.storage_path) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([item.storage_path]);
+  }
+
+  const { error } = await supabase().from("edit_items").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function getAllPlans(): Promise<TravelPlan[]> {
-  return api<TravelPlan[]>("/api/plans");
+  const { data, error } = await supabase()
+    .from("travel_plans")
+    .select("*")
+    .order("date", { ascending: true, nullsFirst: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as PlanRow[]).map(rowToPlan);
 }
 
 export async function savePlan(plan: TravelPlan) {
-  await api("/api/plans", { method: "POST", body: JSON.stringify(plan) });
+  const { error } = await supabase().from("travel_plans").upsert(planToRow(plan));
+  if (error) throw new Error(error.message);
 }
 
 export async function deletePlan(id: string) {
-  await api("/api/plans", { method: "DELETE", body: JSON.stringify({ id }) });
+  const { data: plan } = await supabase()
+    .from("travel_plans")
+    .select("image_path")
+    .eq("id", id)
+    .single();
+
+  if (plan?.image_path) {
+    await supabase().storage.from(MEDIA_BUCKET).remove([plan.image_path]);
+  }
+
+  const { error } = await supabase().from("travel_plans").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export async function exportAllData(): Promise<string> {
