@@ -55,14 +55,103 @@ export async function logout(): Promise<void> {
 }
 
 export async function saveBlob(file: File, folder = "misc"): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("folder", folder);
-  const { path } = await api<{ path: string; url: string }>("/api/upload", {
-    method: "POST",
-    body: formData,
+  const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+
+  const { path, signedUrl } = await api<{ path: string; signedUrl: string; token: string }>(
+    "/api/upload/sign",
+    {
+      method: "POST",
+      body: JSON.stringify({ folder, contentType: file.type, ext }),
+    }
+  );
+
+  const uploadRes = await fetch(signedUrl, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": file.type || "application/octet-stream" },
   });
+
+  if (!uploadRes.ok) {
+    throw new Error(`Upload failed: ${uploadRes.statusText}`);
+  }
+
   return path;
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mimeType });
+}
+
+function blobFolder(
+  blobId: string,
+  data: {
+    memories?: MapMemory[];
+    gallery?: MediaItem[];
+    edits?: MediaItem[];
+    plans?: TravelPlan[];
+  }
+): string {
+  if (data.edits?.some((e) => e.blobId === blobId)) return "edits";
+  if (data.gallery?.some((g) => g.blobId === blobId)) return "gallery";
+  if (data.memories?.some((m) => m.imageIds?.includes(blobId))) return "memories";
+  if (data.plans?.some((p) => p.imageId === blobId)) return "plans";
+  return "import";
+}
+
+export async function importAllData(
+  json: string,
+  onProgress?: (message: string) => void
+): Promise<void> {
+  const data = JSON.parse(json) as {
+    memories?: MapMemory[];
+    gallery?: MediaItem[];
+    edits?: MediaItem[];
+    plans?: TravelPlan[];
+    blobs?: { id: string; mimeType: string; data: string }[];
+  };
+
+  const idMap: Record<string, string> = {};
+  const blobs = data.blobs ?? [];
+
+  for (let i = 0; i < blobs.length; i++) {
+    const b = blobs[i];
+    onProgress?.(`Uploading media ${i + 1} of ${blobs.length}...`);
+    const blob = base64ToBlob(b.data, b.mimeType);
+    const file = new File([blob], b.id, { type: b.mimeType });
+    const folder = blobFolder(b.id, data);
+    idMap[b.id] = await saveBlob(file, folder);
+  }
+
+  onProgress?.("Importing map memories...");
+  for (const m of data.memories ?? []) {
+    await saveMemory({
+      ...m,
+      imageIds: (m.imageIds ?? []).map((id) => idMap[id] ?? id),
+    });
+  }
+
+  onProgress?.("Importing gallery...");
+  for (const g of data.gallery ?? []) {
+    await saveGalleryItem({ ...g, blobId: idMap[g.blobId] ?? g.blobId });
+  }
+
+  onProgress?.("Importing edits...");
+  for (const e of data.edits ?? []) {
+    await saveEditItem({ ...e, blobId: idMap[e.blobId] ?? e.blobId });
+  }
+
+  onProgress?.("Importing plans...");
+  for (const p of data.plans ?? []) {
+    await savePlan({
+      ...p,
+      imageId: p.imageId ? idMap[p.imageId] ?? p.imageId : undefined,
+    });
+  }
+
+  onProgress?.("Done!");
 }
 
 export async function getBlobUrl(storagePath: string): Promise<string | null> {
@@ -150,8 +239,4 @@ export async function exportAllData(): Promise<string> {
     getAllPlans(),
   ]);
   return JSON.stringify({ memories, gallery, edits, plans }, null, 2);
-}
-
-export async function importAllData(_json: string) {
-  throw new Error("Import is disabled in cloud mode. Data syncs automatically.");
 }
